@@ -1,0 +1,12 @@
+build/
+dist/
+coverage/
+.idea/
+*.pem
+corporate_chat.db
+.DS_Store
+*.log
+.env*
+!.env.example
+.venv/
+__pycache__/

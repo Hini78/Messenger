@@ -1,0 +1,6 @@
+{
+  "name": "Secure Corporate Messenger",
+  "description": "A secure message exchange system using hybrid encryption (AES-256, RSA-2048, SHA-256) with a FastAPI backend and SQLite.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
