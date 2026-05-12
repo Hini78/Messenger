@@ -109,6 +109,14 @@ def get_public_key(username: str, db: Session = Depends(get_db)):
     return {"id": user.id, "username": username, "public_key": user.public_key}
 
 
+@app.get("/users/by-id/{user_id}")
+def get_user_by_id(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"id": user.id, "username": user.username, "public_key": user.public_key}
+
+
 @app.post("/verify_user")
 def verify_user(request: schemas.UserCreate, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.username == request.username).first()
@@ -132,6 +140,7 @@ def send_message(msg: schemas.MessageCreate, db: Session = Depends(get_db)):
         recipient_id=msg.recipient_id,
         encrypted_content=msg.encrypted_content,
         encrypted_session_key=msg.encrypted_session_key,
+        encrypted_session_key_sender=msg.encrypted_session_key_sender,
         iv=msg.iv,
         integrity_hash=msg.integrity_hash
     )
@@ -143,5 +152,8 @@ def send_message(msg: schemas.MessageCreate, db: Session = Depends(get_db)):
 
 @app.get("/messages/{user_id}")
 def get_messages(user_id: int, db: Session = Depends(get_db)):
-    messages = db.query(models.Message).filter(models.Message.recipient_id == user_id).all()
+    from sqlalchemy import or_
+    messages = db.query(models.Message).filter(
+        or_(models.Message.recipient_id == user_id, models.Message.sender_id == user_id)
+    ).order_by(models.Message.sent_at.asc()).all()
     return messages

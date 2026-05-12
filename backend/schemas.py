@@ -20,6 +20,7 @@ class MessageCreate(BaseModel):
     recipient_id: int
     encrypted_content: str
     encrypted_session_key: str
+    encrypted_session_key_sender: Optional[str] = None
     iv: str
     integrity_hash: str
 

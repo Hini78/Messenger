@@ -10,6 +10,7 @@ from cryptography.hazmat.backends import default_backend
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("CryptoEngine")
 
+
 class CryptoEngine:
     """
     Implements the hybrid encryption scheme:
@@ -27,7 +28,7 @@ class CryptoEngine:
             backend=default_backend()
         )
         public_key = private_key.public_key()
-        
+
         priv_pem = private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,
@@ -41,9 +42,9 @@ class CryptoEngine:
         return priv_pem, pub_pem
 
     @staticmethod
-    def encrypt_message(message_text: str, recipient_public_key_pem: bytes):
+    def encrypt_message(message_text: str, recipient_public_key_pem: bytes, sender_public_key_pem: bytes = None):
         logger.info("--- STARTING ENCRYPTION PROCESS ---")
-        
+
         # 1. Generate a random AES session key (256 bits)
         session_key = os.urandom(32)
         iv = os.urandom(16)
@@ -68,6 +69,20 @@ class CryptoEngine:
                 label=None
             )
         )
+
+        encrypted_session_key_sender = None
+        if sender_public_key_pem:
+            logger.info("Wrapping AES session key with Sender's RSA Public Key...")
+            sender_pub_key = serialization.load_pem_public_key(sender_public_key_pem, backend=default_backend())
+            encrypted_session_key_sender = sender_pub_key.encrypt(
+                session_key,
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None
+                )
+            )
+
         logger.info("Session key wrapped successfully.")
 
         # 4. Create Integrity Hash (SHA-256)
@@ -80,6 +95,7 @@ class CryptoEngine:
         return {
             "encrypted_content": encrypted_content.hex(),
             "encrypted_session_key": encrypted_session_key.hex(),
+            "encrypted_session_key_sender": encrypted_session_key_sender.hex() if encrypted_session_key_sender else None,
             "iv": iv.hex(),
             "integrity_hash": integrity_hash
         }
@@ -87,12 +103,13 @@ class CryptoEngine:
     @staticmethod
     def decrypt_message(encrypted_package: dict, recipient_private_key_pem: bytes):
         logger.info("--- STARTING DECRYPTION PROCESS ---")
-        
+
         # 1. Unwrap the AES session key using Private RSA Key
         logger.info("Unwrapping AES session key with Recipient's RSA Private Key...")
-        private_key = serialization.load_pem_private_key(recipient_private_key_pem, password=None, backend=default_backend())
+        private_key = serialization.load_pem_private_key(recipient_private_key_pem, password=None,
+                                                         backend=default_backend())
         encrypted_session_key = bytes.fromhex(encrypted_package["encrypted_session_key"])
-        
+
         session_key = private_key.decrypt(
             encrypted_session_key,
             padding.OAEP(
@@ -107,7 +124,7 @@ class CryptoEngine:
         logger.info("Decrypting message content with AES-256-CFB...")
         iv = bytes.fromhex(encrypted_package["iv"])
         encrypted_content = bytes.fromhex(encrypted_package["encrypted_content"])
-        
+
         cipher = Cipher(algorithms.AES(session_key), modes.CFB(iv), backend=default_backend())
         decryptor = cipher.decryptor()
         decrypted_content = decryptor.update(encrypted_content) + decryptor.finalize()
@@ -119,7 +136,7 @@ class CryptoEngine:
         hasher = hashlib.sha256()
         hasher.update(decrypted_content)
         current_hash = hasher.hexdigest()
-        
+
         if current_hash == encrypted_package["integrity_hash"]:
             logger.info("INTEGRITY VERIFIED: Hashes match.")
             return message_text, True

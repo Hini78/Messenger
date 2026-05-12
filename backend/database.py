@@ -11,6 +11,14 @@ def init_db():
     try:
         from . import models
         Base.metadata.create_all(bind=engine)
+        # Add column if not exists (SQLite specific check)
+        with engine.connect() as conn:
+            from sqlalchemy import text
+            try:
+                conn.execute(text("ALTER TABLE messages ADD COLUMN encrypted_session_key_sender TEXT"))
+                conn.commit()
+            except:
+                pass # Already exists or table not ready
     except Exception as e:
         import logging
         logging.getLogger("API").error(f"init_db failed: {e}")

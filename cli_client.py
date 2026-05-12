@@ -130,7 +130,8 @@ class SecureClient:
             message_text = input("Введите сообщение: ")
 
             # 3. Шифруем (Логика отобразится в логах CryptoEngine)
-            encrypted_package = CryptoEngine.encrypt_message(message_text, recipient_pub_key)
+            # Шифруем для получателя И для себя
+            encrypted_package = CryptoEngine.encrypt_message(message_text, recipient_pub_key, self.public_key)
 
             # 4. Отправляем пакет
             payload = {
@@ -138,6 +139,7 @@ class SecureClient:
                 "recipient_id": recipient_id,
                 "encrypted_content": encrypted_package["encrypted_content"],
                 "encrypted_session_key": encrypted_package["encrypted_session_key"],
+                "encrypted_session_key_sender": encrypted_package["encrypted_session_key_sender"],
                 "iv": encrypted_package["iv"],
                 "integrity_hash": encrypted_package["integrity_hash"]
             }
@@ -163,19 +165,35 @@ class SecureClient:
                 return
 
             for m in messages:
-                print(f"\n[Зашифрованный пакет от ID {m['sender_id']}]")
+                if m['sender_id'] == self.user_id:
+                    role = "ОТПРАВЛЕНО (вам)"
+                    session_key = m.get('encrypted_session_key_sender')
+                    target = f"Кому: ID {m['recipient_id']}"
+                else:
+                    role = "ВХОДЯЩЕЕ"
+                    session_key = m.get('encrypted_session_key')
+                    target = f"От: ID {m['sender_id']}"
+
+                print(f"\n[{role} | {target}]")
+                if not session_key:
+                    print(">>> [Ошибка: ключ для вас не найден]")
+                    continue
+
                 pkg = {
                     "encrypted_content": m["encrypted_content"],
-                    "encrypted_session_key": m["encrypted_session_key"],
+                    "encrypted_session_key": session_key,
                     "iv": m["iv"],
                     "integrity_hash": m["integrity_hash"]
                 }
                 # Дешифровка
-                decrypted_text, integrity = CryptoEngine.decrypt_message(pkg, self.private_key)
-                if integrity:
-                    print(f">>> {decrypted_text} [ЦЕЛОСТНОСТЬ OK]")
-                else:
-                    print(f">>> {decrypted_text} [ОШИБКА: ДАННЫЕ ИЗМЕНЕНЫ]")
+                try:
+                    decrypted_text, integrity = CryptoEngine.decrypt_message(pkg, self.private_key)
+                    if integrity:
+                        print(f">>> {decrypted_text} [ЦЕЛОСТНОСТЬ OK]")
+                    else:
+                        print(f">>> {decrypted_text} [ОШИБКА: ДАННЫЕ ИЗМЕНЕНЫ]")
+                except:
+                    print(">>> [Ошибка дешифровки]")
         except Exception as e:
             print(f"[Ошибка] {e}")
 

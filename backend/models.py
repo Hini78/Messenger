@@ -17,6 +17,7 @@ class Message(Base):
     recipient_id = Column(Integer, ForeignKey('users.id'))
     encrypted_content = Column(Text, nullable=False)
     encrypted_session_key = Column(Text, nullable=False)
+    encrypted_session_key_sender = Column(Text, nullable=True) # RSA-encrypted key for sender
     iv = Column(Text, nullable=False)
     integrity_hash = Column(String(64), nullable=False)
     sent_at = Column(DateTime, default=datetime.datetime.utcnow)
