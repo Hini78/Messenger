@@ -23,6 +23,8 @@ class MessageCreate(BaseModel):
     encrypted_session_key_sender: Optional[str] = None
     iv: str
     integrity_hash: str
+    file_name: Optional[str] = None
+    file_size: Optional[int] = None
 
 class MessageOut(MessageCreate):
     id: int

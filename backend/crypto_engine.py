@@ -42,7 +42,7 @@ class CryptoEngine:
         return priv_pem, pub_pem
 
     @staticmethod
-    def encrypt_message(message_text: str, recipient_public_key_pem: bytes, sender_public_key_pem: bytes = None):
+    def encrypt_data(data: bytes, recipient_public_key_pem: bytes, sender_public_key_pem: bytes = None):
         logger.info("--- STARTING ENCRYPTION PROCESS ---")
 
         # 1. Generate a random AES session key (256 bits)
@@ -51,12 +51,12 @@ class CryptoEngine:
         logger.info(f"Generated random 256-bit AES session key: {session_key.hex()[:10]}...")
         logger.info(f"Generated IV: {iv.hex()}")
 
-        # 2. Encrypt message content with AES
-        logger.info("Encrypting message content with AES-256-CFB...")
+        # 2. Encrypt data with AES
+        logger.info("Encrypting data with AES-256-CFB...")
         cipher = Cipher(algorithms.AES(session_key), modes.CFB(iv), backend=default_backend())
         encryptor = cipher.encryptor()
-        encrypted_content = encryptor.update(message_text.encode()) + encryptor.finalize()
-        logger.info(f"Content encrypted. Length: {len(encrypted_content)} bytes")
+        encrypted_content = encryptor.update(data) + encryptor.finalize()
+        logger.info(f"Data encrypted. Length: {len(encrypted_content)} bytes")
 
         # 3. Encrypt the session key with Recipient's RSA Public Key (Key Wrapping)
         logger.info("Wrapping AES session key with Recipient's RSA Public Key...")
@@ -88,7 +88,7 @@ class CryptoEngine:
         # 4. Create Integrity Hash (SHA-256)
         logger.info("Generating SHA-256 integrity hash...")
         hasher = hashlib.sha256()
-        hasher.update(message_text.encode())
+        hasher.update(data)
         integrity_hash = hasher.hexdigest()
         logger.info(f"Integrity Hash: {integrity_hash}")
 
@@ -100,8 +100,13 @@ class CryptoEngine:
             "integrity_hash": integrity_hash
         }
 
+    # Backward compatibility
     @staticmethod
-    def decrypt_message(encrypted_package: dict, recipient_private_key_pem: bytes):
+    def encrypt_message(message_text: str, recipient_public_key_pem: bytes, sender_public_key_pem: bytes = None):
+        return CryptoEngine.encrypt_data(message_text.encode(), recipient_public_key_pem, sender_public_key_pem)
+
+    @staticmethod
+    def decrypt_data(encrypted_package: dict, recipient_private_key_pem: bytes):
         logger.info("--- STARTING DECRYPTION PROCESS ---")
 
         # 1. Unwrap the AES session key using Private RSA Key
@@ -121,25 +126,33 @@ class CryptoEngine:
         logger.info("Session key unwrapped successfully.")
 
         # 2. Decrypt content with the unwrapped session key
-        logger.info("Decrypting message content with AES-256-CFB...")
+        logger.info("Decrypting data with AES-256-CFB...")
         iv = bytes.fromhex(encrypted_package["iv"])
         encrypted_content = bytes.fromhex(encrypted_package["encrypted_content"])
 
         cipher = Cipher(algorithms.AES(session_key), modes.CFB(iv), backend=default_backend())
         decryptor = cipher.decryptor()
-        decrypted_content = decryptor.update(encrypted_content) + decryptor.finalize()
-        message_text = decrypted_content.decode()
-        logger.info(f"Decryption complete. Message: '{message_text}'")
+        decrypted_data = decryptor.update(encrypted_content) + decryptor.finalize()
+        logger.info(f"Decryption complete. Data size: {len(decrypted_data)} bytes")
 
         # 3. Verify Integrity
         logger.info("Verifying SHA-256 integrity hash...")
         hasher = hashlib.sha256()
-        hasher.update(decrypted_content)
+        hasher.update(decrypted_data)
         current_hash = hasher.hexdigest()
 
         if current_hash == encrypted_package["integrity_hash"]:
             logger.info("INTEGRITY VERIFIED: Hashes match.")
-            return message_text, True
+            return decrypted_data, True
         else:
             logger.error("INTEGRITY FAILED: Hashes do not match!")
-            return message_text, False
+            return decrypted_data, False
+
+    # Backward compatibility
+    @staticmethod
+    def decrypt_message(encrypted_package: dict, recipient_private_key_pem: bytes):
+        data, ok = CryptoEngine.decrypt_data(encrypted_package, recipient_private_key_pem)
+        try:
+            return data.decode(), ok
+        except:
+            return "[Error: Data is binary, use decrypt_data instead]", ok

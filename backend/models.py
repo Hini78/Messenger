@@ -20,4 +20,6 @@ class Message(Base):
     encrypted_session_key_sender = Column(Text, nullable=True) # RSA-encrypted key for sender
     iv = Column(Text, nullable=False)
     integrity_hash = Column(String(64), nullable=False)
+    file_name = Column(String(255), nullable=True)
+    file_size = Column(Integer, nullable=True)
     sent_at = Column(DateTime, default=datetime.datetime.utcnow)

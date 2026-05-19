@@ -16,9 +16,17 @@ def init_db():
             from sqlalchemy import text
             try:
                 conn.execute(text("ALTER TABLE messages ADD COLUMN encrypted_session_key_sender TEXT"))
-                conn.commit()
             except:
-                pass # Already exists or table not ready
+                pass
+            try:
+                conn.execute(text("ALTER TABLE messages ADD COLUMN file_name TEXT"))
+            except:
+                pass
+            try:
+                conn.execute(text("ALTER TABLE messages ADD COLUMN file_size INTEGER"))
+            except:
+                pass
+            conn.commit()
     except Exception as e:
         import logging
         logging.getLogger("API").error(f"init_db failed: {e}")

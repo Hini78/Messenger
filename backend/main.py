@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Secure Corporate Messenger API", lifespan=lifespan)
+app = FastAPI(title="Messenger API", lifespan=lifespan)
 
 
 # Global error handler for debugging
@@ -142,7 +142,9 @@ def send_message(msg: schemas.MessageCreate, db: Session = Depends(get_db)):
         encrypted_session_key=msg.encrypted_session_key,
         encrypted_session_key_sender=msg.encrypted_session_key_sender,
         iv=msg.iv,
-        integrity_hash=msg.integrity_hash
+        integrity_hash=msg.integrity_hash,
+        file_name=msg.file_name,
+        file_size=msg.file_size
     )
     db.add(new_msg)
     db.commit()

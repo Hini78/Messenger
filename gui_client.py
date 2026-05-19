@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import messagebox, ttk, simpledialog
+from tkinter import messagebox, ttk, simpledialog, filedialog
 import requests
 import threading
 import time
@@ -105,6 +105,9 @@ class MessengerGUI:
         self.send_btn = ttk.Button(self.input_frame, text="Отправить", command=self.send_message)
         self.send_btn.pack(side="right", padx=(5, 0))
 
+        self.file_btn = ttk.Button(self.input_frame, text="📎", width=3, command=self.send_file)
+        self.file_btn.pack(side="right", padx=(5, 0))
+
         # Потоки
         self.stop_thread = False
         threading.Thread(target=self.poll_messages, daemon=True).start()
@@ -140,14 +143,30 @@ class MessengerGUI:
         self.chat_header.config(text=f"Чат с {name}")
 
         messages = self.chats.get(self.current_chat_id, [])
-        for sender, text, status in messages:
-            # sender может быть "me" или ID отправителя
+        for m in messages:
+            sender = m["sender"]
+            text = m["text"]
+            status = m["status"]
+            file_name = m.get("file_name")
+
             if sender == "me":
                 prefix = "Вы: "
             else:
                 s_name = self.id_to_name.get(sender, f"ID {sender}")
                 prefix = f"{s_name}: "
-            self.chat_display.insert(tk.END, f"{prefix}{text}{status}\n")
+
+            if file_name:
+                display_text = f"[ФАЙЛ: {file_name}]"
+                tag_name = f"file_{m['id']}"
+
+                self.chat_display.insert(tk.END, prefix)
+                self.chat_display.insert(tk.END, display_text, tag_name)
+                self.chat_display.insert(tk.END, f" {text}{status}\n")
+
+                self.chat_display.tag_config(tag_name, foreground="blue", underline=1)
+                self.chat_display.tag_bind(tag_name, "<Button-1>", lambda e, msg=m: self.download_file(msg))
+            else:
+                self.chat_display.insert(tk.END, f"{prefix}{text}{status}\n")
 
         self.chat_display.see(tk.END)
         self.chat_display.config(state="disabled")
@@ -240,6 +259,7 @@ class MessengerGUI:
                 self.username = username
                 self.user_id = resp.json()["id"]
                 self.private_key = priv
+                self.public_key = pub  # Сохраняем публичный ключ в памяти
                 self._save_keys(priv, pub)
                 messagebox.showinfo("Успех", f"Зарегистрирован! ID: {self.user_id}")
                 self.setup_chat_screen()
@@ -268,6 +288,10 @@ class MessengerGUI:
             r_data = r_resp.json()
             r_pub = r_data["public_key"].encode('utf-8')
 
+            if not self.public_key:
+                messagebox.showwarning("Внимание",
+                                       "Ваш публичный ключ не загружен. Вы не сможете прочитать это сообщение позже.")
+
             # Шифруем для получателя И для себя
             pkg = CryptoEngine.encrypt_message(text, r_pub, self.public_key)
             payload = {
@@ -279,6 +303,97 @@ class MessengerGUI:
             if s_resp.status_code == 200:
                 # Очищаем поле ввода. Сообщение появится в чате после поллинга от сервера.
                 self.msg_entry.delete(0, tk.END)
+        except Exception as e:
+            messagebox.showerror("Ошибка", str(e))
+
+    def send_file(self):
+        if self.current_chat_id is None:
+            messagebox.showwarning("Внимание", "Выберите чат из списка слева")
+            return
+
+        file_path = filedialog.askopenfilename()
+        if not file_path:
+            return
+
+        file_name = os.path.basename(file_path)
+        file_size = os.path.getsize(file_path)
+
+        if file_size > 10 * 1024 * 1024:
+            messagebox.showwarning("Внимание", "Файл слишком велик (макс 10МБ)")
+            return
+
+        try:
+            with open(file_path, "rb") as f:
+                file_data = f.read()
+
+            recipient_name = self.id_to_name.get(self.current_chat_id)
+            r_resp = requests.get(f"{self.base_url}/users/{recipient_name}/public_key", timeout=5)
+            if r_resp.status_code != 200:
+                messagebox.showerror("Ошибка", "Не удалось получить ключ получателя")
+                return
+
+            r_data = r_resp.json()
+            r_pub = r_data["public_key"].encode('utf-8')
+
+            if not self.public_key:
+                messagebox.showwarning("Внимание",
+                                       "Ваш публичный ключ не загружен. Вы не сможете скачать этот файл позже.")
+
+            # Шифруем файл
+            pkg = CryptoEngine.encrypt_data(file_data, r_pub, self.public_key)
+            payload = {
+                "sender_id": self.user_id,
+                "recipient_id": self.current_chat_id,
+                "file_name": file_name,
+                "file_size": file_size,
+                **pkg
+            }
+            s_resp = requests.post(f"{self.base_url}/send_message", json=payload, timeout=10)
+            if s_resp.status_code == 200:
+                messagebox.showinfo("Успех", f"Файл {file_name} отправлен")
+            else:
+                messagebox.showerror("Ошибка", "Не удалось отправить файл")
+        except Exception as e:
+            messagebox.showerror("Ошибка", str(e))
+
+    def download_file(self, msg_data):
+        if not self.private_key:
+            messagebox.showerror("Ошибка", "Нет приватного ключа для дешифровки")
+            return
+
+        file_name = msg_data.get("file_name")
+        raw_pkg = msg_data.get("raw_pkg")
+
+        # Decide which session key to use
+        # Check if current user is sender
+        if str(raw_pkg["sender_id"]) == str(self.user_id):
+            session_key_hex = raw_pkg.get("encrypted_session_key_sender")
+        else:
+            session_key_hex = raw_pkg.get("encrypted_session_key")
+
+        if not session_key_hex:
+            messagebox.showerror("Ошибка", "Ключ сессии не найден")
+            return
+
+        save_path = filedialog.asksaveasfilename(initialfile=file_name)
+        if not save_path:
+            return
+
+        try:
+            pkg = {
+                "encrypted_content": raw_pkg["encrypted_content"],
+                "encrypted_session_key": session_key_hex,
+                "iv": raw_pkg["iv"],
+                "integrity_hash": raw_pkg["integrity_hash"]
+            }
+            data, ok = CryptoEngine.decrypt_data(pkg, self.private_key)
+            if not ok:
+                messagebox.showwarning("Внимание", "Целостность файла нарушена!")
+
+            with open(save_path, "wb") as f:
+                f.write(data)
+
+            messagebox.showinfo("Успех", f"Файл сохранен в {save_path}")
         except Exception as e:
             messagebox.showerror("Ошибка", str(e))
 
@@ -321,12 +436,21 @@ class MessengerGUI:
                         self.chats[target_id] = []
                         new_data_received = True
 
+                    msg_data = {
+                        "id": msg_id,
+                        "sender": sender_label,
+                        "status": "",
+                        "file_name": m.get("file_name"),
+                        "file_size": m.get("file_size"),
+                        "raw_pkg": m  # save full package for decryption/download
+                    }
+
                     if not self.private_key:
-                        self.chats[target_id].append((sender_label, "[Шифровано - нет ключа]", ""))
+                        msg_data["text"] = "[Шифровано - нет ключа]"
                     else:
                         session_key = m.get(session_key_field)
                         if not session_key:
-                            self.chats[target_id].append((sender_label, "[Ошибка: ключ для вас не найден]", ""))
+                            msg_data["text"] = "[Ошибка: ключ для вас не найден]"
                         else:
                             pkg = {
                                 "encrypted_content": m["encrypted_content"],
@@ -335,12 +459,19 @@ class MessengerGUI:
                                 "integrity_hash": m["integrity_hash"]
                             }
                             try:
-                                text, ok = CryptoEngine.decrypt_message(pkg, self.private_key)
-                                status = "" if ok else " [!] Ошибка целостности"
-                                self.chats[target_id].append((sender_label, text, status))
-                            except:
-                                self.chats[target_id].append((sender_label, "[Ошибка дешифровки]", ""))
+                                # If it's a file, we don't necessarily want to decrypt it to text now
+                                if m.get("file_name"):
+                                    msg_data["text"] = f"📎 {m['file_name']} ({m['file_size']} байт)"
+                                    # We'll decrypt only on download
+                                else:
+                                    data, ok = CryptoEngine.decrypt_data(pkg, self.private_key)
+                                    text = data.decode()
+                                    msg_data["text"] = text
+                                    if not ok: msg_data["status"] = " [!] Защита нарушена"
+                            except Exception as e:
+                                msg_data["text"] = "[Ошибка дешифровки]"
 
+                    self.chats[target_id].append(msg_data)
                     self.processed_msg_ids.add(msg_id)
                     new_data_received = True
 

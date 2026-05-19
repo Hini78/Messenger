@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port=3000 --host=0.0.0.0",
+    "dev": "python3 -m uvicorn backend.main:app --port 3000 --host 0.0.0.0",
     "build": "echo 'CLI-only app. No build required.'",
     "preview": "vite preview",
     "clean": "rm -rf dist",
